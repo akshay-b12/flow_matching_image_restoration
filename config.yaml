@@ -1,0 +1,34 @@
+dataset:
+  clean_dir: "data/clean"
+  degraded_dir: null
+  image_size: 256
+  center_crop: true
+  degrade_on_the_fly:
+    use_blur: true
+    blur_kernel: 5
+    blur_sigma: [0.1, 2.0]
+    use_noise: true
+    noise_std: 0.05
+
+vae:
+  pretrained_path: "path_or_hub_id_for_vae"
+  subfolder: null
+
+model:
+  in_channels: 4
+  base_channels: 64
+  time_emb_dim: 128
+
+train:
+  device: "cuda"
+  seed: 42
+  batch_size: 4
+  num_workers: 4
+  lr: 1.0e-4
+  weight_decay: 1.0e-2
+  epochs: 10
+  log_every: 50
+  save_every: 1
+  output_dir: "checkpoints"
+  amp: true
+  resume: null
