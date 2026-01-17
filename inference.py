@@ -3,6 +3,7 @@ import os
 
 import torch
 from torchvision import transforms
+import torch.nn.functional as F
 from PIL import Image
 import yaml
 
@@ -31,6 +32,17 @@ def load_image(path, image_size, center_crop):
     return base(img).unsqueeze(0)
 
 
+def load_full_image(path):
+    img = Image.open(path).convert("RGB")
+    base = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x * 2.0 - 1.0),
+        ]
+    )
+    return base(img).unsqueeze(0)
+
+
 def save_image(tensor, path):
     img = (tensor.clamp(-1, 1) + 1.0) * 0.5
     img = img.squeeze(0).detach().cpu()
@@ -45,6 +57,7 @@ def main():
     parser.add_argument("--output", type=str, required=True)
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--steps", type=int, default=20)
+    parser.add_argument("--patch_size", type=int, default=512)
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -66,20 +79,31 @@ def main():
     model.load_state_dict(payload["model"])
     model.eval()
 
-    degraded = load_image(
-        args.input,
-        image_size=cfg["dataset"].get("image_size", 256),
-        center_crop=cfg["dataset"].get("center_crop", True),
-    ).to(device)
+    if args.patch_size % 8 != 0:
+        raise ValueError("patch_size must be divisible by 8 for the VAE downsampling.")
+
+    degraded = load_full_image(args.input).to(device)
+    _, _, h, w = degraded.shape
+    pad_h = (args.patch_size - h % args.patch_size) % args.patch_size
+    pad_w = (args.patch_size - w % args.patch_size) % args.patch_size
+    degraded = F.pad(degraded, (0, pad_w, 0, pad_h), mode="reflect")
+    _, _, hp, wp = degraded.shape
+    output = torch.zeros_like(degraded)
 
     with torch.no_grad():
-        z = vae.encode(degraded).latent_dist.sample() * scaling_factor
         dt = 1.0 / args.steps
-        for i in range(args.steps):
-            t = torch.full((z.size(0),), i * dt, device=device)
-            v = model(z, t)
-            z = z + v * dt
-        rec = vae.decode(z / scaling_factor).sample
+        for y in range(0, hp, args.patch_size):
+            for x in range(0, wp, args.patch_size):
+                patch = degraded[:, :, y : y + args.patch_size, x : x + args.patch_size]
+                z = vae.encode(patch).latent_dist.sample() * scaling_factor
+                for i in range(args.steps):
+                    t = torch.full((z.size(0),), i * dt, device=device)
+                    v = model(z, t)
+                    z = z + v * dt
+                rec = vae.decode(z / scaling_factor).sample
+                output[:, :, y : y + args.patch_size, x : x + args.patch_size] = rec
+
+    rec = output[:, :, :h, :w]
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     save_image(rec, args.output)
