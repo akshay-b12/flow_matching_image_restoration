@@ -8,7 +8,7 @@ def timestep_embedding(t, dim):
     freqs = torch.exp(
         -math.log(10000) * torch.arange(0, half, dtype=torch.float32, device=t.device) / half
     )
-    args = t[:, None].float() * freqs[None]
+    args = t.float() * freqs[None]
     emb = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
     if dim % 2 == 1:
         emb = torch.nn.functional.pad(emb, (0, 1))
