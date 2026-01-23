@@ -9,6 +9,7 @@ from torchvision import transforms
 from torchvision.transforms import functional as TF
 from PIL import Image
 import yaml
+from tqdm import tqdm
 
 from diffusers import AutoencoderKL
 
@@ -115,7 +116,8 @@ def main():
 
     for epoch in range(state.epoch, max_epochs):
         model.train()
-        for degraded, clean in loader:
+        pbar = tqdm(loader, desc=f"epoch {epoch + 1}/{max_epochs}", leave=True)
+        for degraded, clean in pbar:
             degraded = degraded.to(device)
             clean = clean.to(device)
 
@@ -137,7 +139,7 @@ def main():
             scaler.update()
 
             if state.step % log_every == 0:
-                print(f"epoch {epoch} step {state.step} loss {loss.item():.6f}")
+                pbar.set_postfix(step=state.step, loss=f"{loss.item():.6f}")
 
             state.step += 1
 
