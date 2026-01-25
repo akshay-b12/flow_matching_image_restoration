@@ -1,4 +1,5 @@
 import torch 
+from utils.vae_utils import encode_latents, decode_latents
 
 @torch.no_grad()
 def heun_transport(z0, v_theta, steps=20):
