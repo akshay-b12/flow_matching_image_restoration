@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+from arch_utils import SinusoidalTimeEmb\
+
 class MetricDiagHead(nn.Module):
     """
     Predicts positive per-pixel weights w in R^{C x H x W} for a diagonal metric.
