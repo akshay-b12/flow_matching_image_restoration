@@ -56,3 +56,35 @@ class CondMLP(nn.Module):
         # t_emb: [B,time_emb_dim], s_t:[B,d_s], e_t:[B,d_e]
         x = torch.cat([t_emb, s_t, e_t], dim=-1)
         return self.mlp(x)  # [B,cond_dim]
+
+class AdaGN(nn.Module):
+    def __init__(self, num_channels, cond_dim, num_groups=8):
+        super().__init__()
+        self.gn = nn.GroupNorm(num_groups=num_groups, num_channels=num_channels, eps=1e-6, affine=False)
+        self.to_ss = nn.Linear(cond_dim, 2 * num_channels)  # scale, shift
+
+    def forward(self, x, cond):
+        # x: [B,C,H,W], cond: [B,cond_dim]
+        h = self.gn(x)
+        ss = self.to_ss(cond).unsqueeze(-1).unsqueeze(-1)  # [B,2C,1,1]
+        scale, shift = ss.chunk(2, dim=1)
+        return h * (1 + scale) + shift
+
+class ResBlockCond(nn.Module):
+    def __init__(self, in_ch, out_ch, cond_dim):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
+        self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
+        self.norm1 = AdaGN(out_ch, cond_dim, num_groups=8)
+        self.norm2 = AdaGN(out_ch, cond_dim, num_groups=8)
+        self.act = nn.SiLU()
+        self.skip = nn.Conv2d(in_ch, out_ch, 1) if in_ch != out_ch else nn.Identity()
+
+    def forward(self, x, cond):
+        h = self.conv1(x)
+        h = self.norm1(h, cond)
+        h = self.act(h)
+        h = self.conv2(h)
+        h = self.norm2(h, cond)
+        h = self.act(h)
+        return h + self.skip(x)
