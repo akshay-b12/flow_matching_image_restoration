@@ -38,3 +38,21 @@ class ResBlock(nn.Module):
         h = self.conv2(h)
         h = self.gn2(h)
         return self.act(h + self.skip(x))
+    
+class CondMLP(nn.Module):
+    """
+    Builds a conditioning vector c from time embedding + manifold state.
+    c is used to generate AdaGN scale/shift in each ResBlock.
+    """
+    def __init__(self, time_emb_dim=128, d_s=8, d_e=1, cond_dim=128):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(time_emb_dim + d_s + d_e, cond_dim * 4),
+            nn.SiLU(),
+            nn.Linear(cond_dim * 4, cond_dim),
+        )
+
+    def forward(self, t_emb, s_t, e_t):
+        # t_emb: [B,time_emb_dim], s_t:[B,d_s], e_t:[B,d_e]
+        x = torch.cat([t_emb, s_t, e_t], dim=-1)
+        return self.mlp(x)  # [B,cond_dim]
