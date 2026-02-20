@@ -102,7 +102,11 @@ def hyperbolic_dist0_from_u(u_euc, c=1.0, eps=1e-7):
 
 def hyperbolic_dist(x, y, c=1.0, eps=1e-7):
     alpha = -c * lorentz_dot(x, y)
-    return arcosh(alpha, eps=eps) / math.sqrt(c)
+    # if alpha <= 1+eps, distance should be exactly 0
+    mask = alpha <= (1.0 + eps)
+    out = torch.zeros_like(alpha)
+    out[~mask] = arcosh(alpha[~mask], eps=eps) / math.sqrt(c)
+    return out
 
 # -----------------------------
 # 3) Image-quality metrics (optional, but useful)
