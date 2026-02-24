@@ -52,6 +52,7 @@ class HyperbolicDegradationEncoderOnManifold(nn.Module):
     def forward(self, z):
         B = z.size(0)
         device = z.device
+        dtype = z.dtype
 
         h = self.pool(z).flatten(1)
         h = self.mlp(h)
@@ -60,30 +61,35 @@ class HyperbolicDegradationEncoderOnManifold(nn.Module):
         r_raw = self.head_r(h)        # [B, 1]
         e = self.head_e(h)            # [B, d_e]
 
-        # Safe direction normalization (no NaNs, no dead divide)
+        # Safe direction normalization
         u_norm = torch.norm(u_raw, dim=-1, keepdim=True).clamp_min(1e-6)
         u_dir = u_raw / u_norm
 
-        # Bounded radius in [0, r_max]; gradients are fine around init bias -5
-        r = self.r_max * torch.sigmoid(r_raw)  # [B,1]
-        u = r * u_dir                          # [B,d_h]
+        # Bounded radius
+        r = self.r_max * torch.sigmoid(r_raw)   # [B,1] in [0, r_max]
+        u = r * u_dir                           # [B, d_h]
 
         # Ambient tangent at origin: (0, u)
-        u_amb = torch.cat([torch.zeros(B, 1, device=device), u], dim=-1)  # [B, d_h+1]
+        u_amb = torch.cat([torch.zeros(B, 1, device=device, dtype=dtype), u], dim=-1)  # [B, d_h+1]
 
-        # Origin on hyperboloid: [1/sqrt(c), 0, ..., 0]
-        h0 = torch.zeros(B, self.head_u.out_features + 1, device=device)
-        h0[:, 0] = 1.0 / math.sqrt(self.c)
+        # Origin on hyperboloid: [1/sqrt(c), 0, ..., 0]  (NO in-place)
+        h0 = torch.zeros(B, self.head_u.out_features + 1, device=device, dtype=dtype)
+        h0 = torch.cat(
+            [torch.full((B, 1), 1.0 / math.sqrt(self.c), device=device, dtype=dtype),
+            torch.zeros(B, self.head_u.out_features, device=device, dtype=dtype)],
+            dim=-1
+        )  # [B, d_h+1]
 
         # exp_{h0}(u) closed-form
-        nu = torch.norm(u, dim=-1).clamp_min(1e-6)    # [B]
-        k = math.sqrt(self.c) * nu                    # [B]
+        nu = torch.norm(u, dim=-1).clamp_min(1e-6)  # [B]
+        k = math.sqrt(self.c) * nu                  # [B]
         cosh = torch.cosh(k)[:, None]
         sinh_over = (torch.sinh(k) / k)[:, None]
-        h1 = cosh * h0 + sinh_over * u_amb            # [B, d_h+1]
+        h1 = cosh * h0 + sinh_over * u_amb          # [B, d_h+1]
 
-        # Enforce manifold constraint exactly (upper sheet)
-        spatial = h1[:, 1:]
-        h1[:, 0] = torch.sqrt((1.0 / self.c) + (spatial * spatial).sum(dim=-1)).clamp_min(1e-6)
+        # Enforce manifold constraint without in-place:
+        spatial = h1[:, 1:]                         # [B, d_h]
+        x0 = torch.sqrt((1.0 / self.c) + (spatial * spatial).sum(dim=-1)).clamp_min(1e-6)  # [B]
+        h1 = torch.cat([x0[:, None], spatial], dim=-1)  # [B, d_h+1]
 
         return h1, e

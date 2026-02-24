@@ -188,14 +188,10 @@ class GeometryOps:
         return self.hyp_proj_tangent(h_t, dh)
 
     def hyp_proj_manifold(self, x):
-        # Project arbitrary ambient x to the upper sheet: set time coord to satisfy constraint
-        # Keep spatial part, fix x0 = sqrt(1/c + ||x_spatial||^2)
         spatial = x[:, 1:]
-        s2 = (spatial * spatial).sum(dim=-1)  # [B]
+        s2 = (spatial * spatial).sum(dim=-1)
         x0 = torch.sqrt(torch.clamp((1.0 / self.cfg.c) + s2, min=self.cfg.eps))
-        out = x.clone()
-        out[:, 0] = x0
-        return out
+        return torch.cat([x0[:, None], spatial], dim=-1)
 
     # =========================================================
     # Unified interface
