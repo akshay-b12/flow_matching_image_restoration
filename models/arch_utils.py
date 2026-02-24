@@ -3,6 +3,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# ---------------------------
+# TinyUNet utilities
+# ---------------------------
+def timestep_embedding(t, dim):
+    half = dim // 2
+    freqs = torch.exp(-math.log(10000) * torch.arange(0, half, dtype=torch.float32, device=t.device) / half)
+    args = t.float()[:, None] * freqs[None]
+    emb = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
+    if dim % 2 == 1:
+        emb = F.pad(emb, (0, 1))
+    return emb
+
 class SinusoidalTimeEmb(nn.Module):
     def __init__(self, dim: int):
         super().__init__()
