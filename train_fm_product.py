@@ -115,6 +115,16 @@ def fm_product_train_step(
     with torch.cuda.amp.autocast(enabled=cfg.use_amp):
         v_z_pred, v_m_raw = vf_model(z_t, t, cond_vec=cond_vec)
 
+        if ops.cfg.kind == "sphere":
+            # normal component wrt m_t (Euclidean dot)
+            normal = (v_m_raw * m_t).sum(dim=-1)
+            loss_perp = (normal ** 2).mean()
+        elif ops.cfg.kind == "hyperboloid":
+            normal = ops.hyp_lorentz_inner(m_t, v_m_raw)
+            loss_perp = (normal ** 2).mean()
+        else:
+            loss_perp = torch.zeros([], device=device)
+
         # project to tangent at current point
         v_m_pred = ops.proj_tangent(m_t, v_m_raw)
 
@@ -124,15 +134,44 @@ def fm_product_train_step(
         dv = v_m_pred - v_m_star
         loss_m = ops.metric_norm2(m_t, dv).mean()
 
-        loss = loss_z + cfg.lambda_m * loss_m
+        loss = loss_z + cfg.lambda_m * loss_m + cfg.lambda_perp * loss_perp
 
     optimizer.zero_grad(set_to_none=True)
+    optimizer.zero_grad(set_to_none=True)
+    scaler.scale(loss).backward()
+
+    
+
+    scaler.step(optimizer)
+    scaler.update()
     if scaler is not None:
         scaler.scale(loss).backward()
+        if global_step % log_every == 0:
+            log_iteration2_stats(
+                writer, global_step,
+                ops=ops,
+                v_m_raw=v_m_raw.detach(),
+                v_m_pred=v_m_pred.detach(),
+                m_t=m_t.detach(),
+                v_m_star=v_m_star.detach(),
+                loss_m=loss_m.detach(),
+                prefix=f"iter2/{ops.cfg.kind}",
+            )
         scaler.step(optimizer)
         scaler.update()
     else:
         loss.backward()
+        if global_step % log_every == 0:
+            log_iteration2_stats(
+                writer, global_step,
+                ops=ops,
+                v_m_raw=v_m_raw.detach(),
+                v_m_pred=v_m_pred.detach(),
+                m_t=m_t.detach(),
+                v_m_star=v_m_star.detach(),
+                loss_m=loss_m.detach(),
+                prefix=f"iter2/{ops.cfg.kind}",
+            )
         optimizer.step()
 
     return {

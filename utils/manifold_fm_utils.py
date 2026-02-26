@@ -142,8 +142,8 @@ class GeometryOps:
 
     def hyp_metric_norm2(self, h, v):
         v = self.hyp_proj_tangent(h, v)
-        # On tangent, <v,v>_L is positive
-        return torch.clamp(self.hyp_lorentz_inner(v, v), min=0.0)
+        vv = self.hyp_lorentz_inner(v, v)
+        return torch.clamp(vv, min=self.cfg.eps)  # NOT min=0.0
 
     def hyp_exp(self, h, u):
         # exp_h(u), u in T_h
@@ -174,17 +174,23 @@ class GeometryOps:
         u = self.hyp_log(h1, h0)
         return self.hyp_exp(h1, t * u)
 
-    def hyp_velocity(self, h1, h0, t):
-        # Differentiate h_t = cosh(k t) h1 + sinh(k t)/(k) u
-        u = self.hyp_log(h1, h0)  # tangent at h1
+    def hyp_exp_noproj(self, h, u):
+        u = self.hyp_proj_tangent(h, u)
         nu2 = torch.clamp(self.hyp_lorentz_inner(u, u), min=self.cfg.eps)
         nu = torch.sqrt(nu2)
-        k = math.sqrt(self.cfg.c) * nu  # [B]
-        kt = k * t.squeeze(-1)          # [B]
-        # dh/dt = k*sinh(k t) h1 + cosh(k t) u
+        k = math.sqrt(self.cfg.c) * nu
+        cosh = torch.cosh(k)[:, None]
+        sinh_over = (torch.sinh(k) / torch.clamp(k, min=self.cfg.eps))[:, None]
+        return cosh * h + sinh_over * u
+
+    def hyp_velocity(self, h1, h0, t):
+        u = self.hyp_log(h1, h0)
+        nu2 = torch.clamp(self.hyp_lorentz_inner(u, u), min=self.cfg.eps)
+        nu = torch.sqrt(nu2)
+        k = math.sqrt(self.cfg.c) * nu
+        kt = k * t.squeeze(-1)
         dh = (k * torch.sinh(kt))[:, None] * h1 + (torch.cosh(kt))[:, None] * u
-        # ensure tangent at current point
-        h_t = self.hyp_exp(h1, t * u)
+        h_t = self.hyp_exp_noproj(h1, t * u)
         return self.hyp_proj_tangent(h_t, dh)
 
     def hyp_proj_manifold(self, x):
